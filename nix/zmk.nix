@@ -5,6 +5,7 @@
 , shield ? null
 , keymap ? null
 , kconfig ? null
+, overlay ? null
 , extraModules ? []
 , snippets ? []
 }:
@@ -14,20 +15,11 @@ let
   # from zephyr/scripts/requirements-base.txt
   packageOverrides = pyself: pysuper: {
     can = pysuper.can.overrideAttrs (_: {
-      # horribly flaky test suite full of assertions about timing.
-      # >       assert 0.1 <= took < inc(0.3)
-      # E       assert 0.31151700019836426 < 0.3
-      # E        +  where 0.3 = inc(0.3)
       doCheck = false;
       doInstallCheck = false;
     });
 
     canopen = pysuper.can.overrideAttrs (_: {
-      # Also has timing sensitive tests
-      #         task = self.network.send_periodic(0x123, [1, 2, 3], 0.01)
-      #         time.sleep(0.1)
-      # >       self.assertTrue(9 <= bus.queue.qsize() <= 11)
-      # E       AssertionError: False is not true
       doCheck = false;
       doInstallCheck = false;
     });
@@ -41,8 +33,6 @@ let
     progress
     anytree
     intelhex
-
-    # TODO: this was required but not in shell.nix
     pykwalify
   ]);
 
@@ -50,9 +40,6 @@ let
     "cmsis" "hal_nordic" "tinycrypt" "lvgl" "picolibc" "segger" "cirque-input-module"
   ];
 
-  # Some Zephyr modules seemingly need a symlink indirection (modulePath),
-  # others don't (src).
-  # This is not the best way to fix it, but it works around the problem.
   directZephyrModules = [ "cirque-input-module" ];
 
   zephyrModuleDeps =
@@ -71,13 +58,9 @@ stdenvNoCC.mkDerivation {
     filter = path: type:
       let relPath = lib.removePrefix (toString ./.. + "/") (toString path);
       in (lib.cleanSourceFilter path type) && ! (
-        # Meta files
         relPath == "nix" || lib.hasSuffix ".nix" path ||
-        # Transient state
         relPath == "build" || relPath == ".west" ||
-        # Fetched by west
         relPath == "modules" || relPath == "tools" || relPath == "zephyr" ||
-        # Not part of ZMK
         relPath == "lambda" || relPath == ".github"
       );
     };
@@ -87,14 +70,11 @@ stdenvNoCC.mkDerivation {
   '';
 
   cmakeFlags = [
-    # "-DZephyrBuildConfiguration_ROOT=${zephyr}/zephyr"
-    # TODO: is this required? if not, why not?
     "-DZEPHYR_BASE=${zephyr}/zephyr"
     "-DBOARD_ROOT=."
     "-DBOARD=${board}"
     "-DZEPHYR_TOOLCHAIN_VARIANT=gnuarmemb"
     "-DGNUARMEMB_TOOLCHAIN_PATH=${gcc-arm-embedded}"
-    # TODO: maybe just use a cross environment for this gcc
     "-DCMAKE_C_COMPILER=${gcc-arm-embedded}/bin/arm-none-eabi-gcc"
     "-DCMAKE_CXX_COMPILER=${gcc-arm-embedded}/bin/arm-none-eabi-g++"
     "-DCMAKE_AR=${gcc-arm-embedded}/bin/arm-none-eabi-ar"
@@ -104,6 +84,7 @@ stdenvNoCC.mkDerivation {
   (lib.optional (shield != null) "-DSHIELD=${shield}") ++
   (lib.optional (keymap != null) "-DKEYMAP_FILE=${keymap}") ++
   (lib.optional (kconfig != null) "-DEXTRA_CONF_FILE=${kconfig}") ++
+  (lib.optional (overlay != null) "-DDTC_OVERLAY_FILE=${overlay}") ++
   (lib.optional (extraModules != []) "-DZMK_EXTRA_MODULES=${lib.concatStringsSep ";" extraModules}") ++
   (lib.optional (snippets != []) "-DSNIPPET=${lib.concatStringsSep ";" snippets}");
 
